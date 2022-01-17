@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 pub struct Stub<'a, A, R> {
     name: String,
@@ -28,27 +31,34 @@ impl<'a, A, R> Stub<'a, A, R> {
             None => (),
         }
 
-       (self.stub)(args)
+        (self.stub)(args)
     }
 }
 
 #[derive(Default)]
 struct StubStore {
-    inner: Arc<Mutex<HashMap<String, Box<Stub<'static, (), ()>>>>>,
+    inner: Arc<Mutex<HashMap<String, (Box<Stub<'static, (), ()>>, &'static str)>>>,
 }
 
 impl StubStore {
     pub fn insert<'a, A, R>(&'a self, name: String, stub: Stub<'a, A, R>) {
         let mut lock = self.inner.lock().unwrap();
         let stub = unsafe { std::mem::transmute(stub) };
+        let ty = std::any::type_name::<(A, R)>();
 
-        lock.insert(name, Box::new(stub));
+        lock.insert(name, (Box::new(stub), ty));
     }
 
     pub unsafe fn get<'a, A, B>(&'a self, name: &str) -> Option<&mut Stub<'a, A, B>> {
         let mut lock = self.inner.lock().unwrap();
         match lock.get_mut(name) {
-            Some(s) => {
+            Some((s, stored_ty)) => {
+                let ty = std::any::type_name::<(A, B)>();
+                assert_eq!(
+                    ty, *stored_ty,
+                    "{} called with unexpected type:\n expected {}, found {} instead.",
+                    name, stored_ty, ty
+                );
                 let s = s.as_mut() as *mut _ as *mut Stub<'a, A, B>;
                 Some(&mut *s)
             }
